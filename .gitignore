@@ -1,0 +1,66 @@
+# Zepp OS / Zeus CLI
+# Based on official zepp-health/zeppos-samples and community Mini Programs
+# (Authenticator, totpfit). `zeus build` / `zeus preview` output stays local.
+
+# Build artifacts (zab installer + intermediate zpk/zip inside dist)
+dist/
+dist/**
+*.zab
+*.zpk
+
+# Zeus / local preview caches (if present)
+.zeus/
+.zeus-cache/
+.tmp/
+tmp/
+
+# Dependencies
+node_modules/
+node_modules/**
+
+# Logs
+npm-debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+selenium-debug.log
+*.log
+
+# Package managers
+# Official Zepp samples ignore lockfiles; this project KEEPS package-lock.json
+# because it has npm deps (jsqr, @zeppos/device-types). Do not ignore it here.
+yarn.lock
+pnpm-lock.yaml
+
+# OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+Desktop.ini
+
+# Editors / IDEs (Zepp samples ignore these)
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+
+# Cursor / local agent noise (optional local-only)
+.cursor/
+!.cursor/rules/
+
+# Env / secrets (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+credentials.json
+
+# Misc local tooling
+bookmark-manager.json
+.apple-load/
+coverage/
+.nyc_output/

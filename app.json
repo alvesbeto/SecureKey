@@ -1,0 +1,89 @@
+{
+  "configVersion": "v2",
+  "app": {
+    "appId": 20421,
+    "appName": "SecureKey",
+    "appType": "app",
+    "version": {
+      "code": 22,
+      "name": "1.2.2"
+    },
+    "icon": "icon.png",
+    "vender": "securekey",
+    "description": "Offline TOTP authenticator for Amazfit GTR 4. Configure keys in Zepp App on iOS; codes generate on-watch offline."
+  },
+  "permissions": [],
+  "runtime": {
+    "apiVersion": {
+      "compatible": "1.0.0",
+      "target": "1.0.0",
+      "minVersion": "1.0.0"
+    }
+  },
+  "targets": {
+    "gtr4new": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/index",
+            "page/detail"
+          ]
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
+      },
+      "designWidth": 466,
+      "platforms": [
+        {
+          "name": "Amazfit GTR 4 new",
+          "deviceSource": 9437441
+        }
+      ]
+    },
+    "gtr4": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/index",
+            "page/detail"
+          ]
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
+      },
+      "designWidth": 466,
+      "platforms": [
+        {
+          "name": "Amazfit GTR 4",
+          "deviceSource": 7930112
+        },
+        {
+          "name": "Amazfit GTR 4 W",
+          "deviceSource": 7930113
+        },
+        {
+          "name": "Amazfit GTR 4 Limited Edition",
+          "deviceSource": 7864577
+        }
+      ]
+    }
+  },
+  "i18n": {
+    "en-US": {
+      "appName": "SecureKey"
+    },
+    "pt-BR": {
+      "appName": "SecureKey"
+    }
+  },
+  "defaultLanguage": "pt-BR",
+  "debug": false
+}

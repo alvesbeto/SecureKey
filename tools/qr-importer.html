@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>SecureKey · Leitor de QR Code</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --card: #141416;
+      --border: #262629;
+      --text: #ffffff;
+      --muted: #8e8e93;
+      --blue: #3b82f6;
+      --green: #059669;
+      --coral: #ff5a5f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 18px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      line-height: 1.45;
+    }
+    .wrap { max-width: 540px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    .sub { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .drop {
+      border: 2px dashed #3a3a3f;
+      border-radius: 14px;
+      padding: 22px 14px;
+      text-align: center;
+      cursor: pointer;
+      display: block;
+    }
+    .drop strong { display: block; font-size: 16px; margin-bottom: 4px; color: #fff; }
+    .drop span { color: var(--muted); font-size: 13px; }
+    input[type="file"] { display: none; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--blue);
+      cursor: pointer;
+    }
+    button.green { background: var(--green); }
+    button.gray { background: #2c2c30; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    textarea {
+      width: 100%;
+      min-height: 92px;
+      margin-top: 10px;
+      background: #0b0b0d;
+      color: #e5e7eb;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      background: rgba(59, 130, 246, 0.14);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      color: #bfdbfe;
+    }
+    .status.err {
+      background: rgba(255, 90, 95, 0.14);
+      border-color: rgba(255, 90, 95, 0.4);
+      color: #fecaca;
+    }
+    .status.ok {
+      background: rgba(5, 150, 105, 0.16);
+      border-color: rgba(5, 150, 105, 0.45);
+      color: #a7f3d0;
+    }
+    .item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .item:last-child { border-bottom: 0; }
+    .item small { color: var(--muted); display: block; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SecureKey · Leitor de QR Code</h1>
+    <p class="sub">
+      Decodifica imagens de QR Code do Google Authenticator (<code>otpauth-migration://</code>) e URIs <code>otpauth://</code> 100% localmente no seu navegador.
+    </p>
+
+    <div class="card">
+      <label class="drop" for="fileInput">
+        <strong>Selecionar Foto / Print do QR Code</strong>
+        <span>Aceita 1 ou varias imagens (PNG, JPG, HEIC convertido pelo iOS)</span>
+      </label>
+      <input id="fileInput" type="file" accept="image/*" multiple />
+      <div id="statusBox" class="status" style="display:none;"></div>
+    </div>
+
+    <div id="resultsCard" class="card" style="display:none;">
+      <strong id="countTitle">Chaves encontradas</strong>
+      <div id="accountsList" style="margin-top:8px;"></div>
+
+      <textarea id="uriOutput" readonly placeholder="URIs extraidas aparecerao aqui..."></textarea>
+      <div class="btn-row">
+        <button id="sendBridgeBtn" class="green">Enviar chaves para o servidor local</button>
+        <button id="copyUriBtn">Copiar URI(s)</button>
+        <button id="clearBtn" class="gray">Limpar</button>
+      </div>
+      <p class="sub" style="margin:10px 0 0;font-size:12px;">
+        1) Toque em <strong>Enviar chaves para o servidor local</strong>.<br/>
+        2) No <strong>Zepp App → SecureKey → Configuracoes</strong>, toque em
+        <strong>Buscar chaves do servidor local</strong>.<br/>
+        Alternativa: <strong>Copiar URI(s)</strong>, cole no campo de URI e toque em
+        <strong>Importar URI / Migration</strong>.
+      </p>
+    </div>
+  </div>
+
+  <canvas id="workCanvas" style="display:none;"></canvas>
+  <script src="./jsQR.js"></script>
+  <script>
+    (function () {
+      const fileInput = document.getElementById('fileInput')
+      const statusBox = document.getElementById('statusBox')
+      const resultsCard = document.getElementById('resultsCard')
+      const countTitle = document.getElementById('countTitle')
+      const accountsList = document.getElementById('accountsList')
+      const uriOutput = document.getElementById('uriOutput')
+      const copyUriBtn = document.getElementById('copyUriBtn')
+      const sendBridgeBtn = document.getElementById('sendBridgeBtn')
+      const clearBtn = document.getElementById('clearBtn')
+      const canvas = document.getElementById('workCanvas')
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+
+      const isHttpServer = /^https?:$/i.test(window.location.protocol)
+      if (!isHttpServer) {
+        sendBridgeBtn.disabled = true
+        sendBridgeBtn.title = 'Abra esta pagina via http://IP:8787 (qr-import-server.sh)'
+      }
+
+      const decodedUris = []
+      const previewAccounts = []
+
+      function showStatus(msg, kind) {
+        statusBox.style.display = 'block'
+        statusBox.className = 'status' + (kind ? ' ' + kind : '')
+        statusBox.textContent = msg
+      }
+
+      function decodeBase64(input) {
+        let clean = String(input || '')
+          .trim()
+          .replace(/ /g, '+')
+          .replace(/-/g, '+')
+          .replace(/_/g, '/')
+          .replace(/[\r\n\t]+/g, '')
+        while (clean.length % 4 !== 0) clean += '='
+        const bin = atob(clean)
+        const out = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+        return out
+      }
+
+      function getRawQueryParam(queryStr, targetKey) {
+        const pairs = String(queryStr || '').split('&')
+        for (const pair of pairs) {
+          if (!pair) continue
+          const eq = pair.indexOf('=')
+          const key = decodeURIComponent(eq === -1 ? pair : pair.slice(0, eq))
+          if (key.toLowerCase() === targetKey.toLowerCase()) {
+            return decodeURIComponent(eq === -1 ? '' : pair.slice(eq + 1))
+          }
+        }
+        return ''
+      }
+
+      function readVarint(bytes, st) {
+        let res = 0, shift = 0, count = 0
+        while (st.pos < bytes.length) {
+          const b = bytes[st.pos++]
+          count++
+          if (shift <= 49) {
+            res += (b & 0x7f) * Math.pow(2, shift)
+          }
+          if ((b & 0x80) === 0) return res
+          shift += 7
+          if (count > 10) throw new Error('Protobuf varint overflow')
+        }
+        throw new Error('Protobuf truncado')
+      }
+
+      function skipField(bytes, st, wire) {
+        if (wire === 0) {
+          readVarint(bytes, st)
+        } else if (wire === 1) {
+          st.pos += 8
+        } else if (wire === 2) {
+          const len = readVarint(bytes, st)
+          st.pos += len
+        } else if (wire === 5) {
+          st.pos += 4
+        } else {
+          throw new Error('Wire type invalido: ' + wire)
+        }
+      }
+
+      function parseMigrationPreview(uri) {
+        const q = uri.indexOf('?')
+        if (q === -1) return []
+        const data = getRawQueryParam(uri.slice(q + 1), 'data')
+        if (!data) return []
+        const bytes = decodeBase64(data)
+        const st = { pos: 0 }
+        const list = []
+        const td = new TextDecoder()
+
+        while (st.pos < bytes.length) {
+          const tag = readVarint(bytes, st)
+          const fn = tag >>> 3
+          const wire = tag & 7
+          if (fn === 1 && wire === 2) {
+            const len = readVarint(bytes, st)
+            const entry = bytes.slice(st.pos, st.pos + len)
+            st.pos += len
+            const est = { pos: 0 }
+            let name = '', issuer = '', typeCode = 2
+            while (est.pos < entry.length) {
+              const etag = readVarint(entry, est)
+              const efn = etag >>> 3
+              const ewire = etag & 7
+              if (efn === 2 && ewire === 2) {
+                const l = readVarint(entry, est)
+                name = td.decode(entry.slice(est.pos, est.pos + l))
+                est.pos += l
+              } else if (efn === 3 && ewire === 2) {
+                const l = readVarint(entry, est)
+                issuer = td.decode(entry.slice(est.pos, est.pos + l))
+                est.pos += l
+              } else if (efn === 6 && ewire === 0) {
+                typeCode = readVarint(entry, est)
+              } else {
+                skipField(entry, est, ewire)
+              }
+            }
+            if (typeCode !== 1) {
+              list.push({ issuer: issuer || name || 'Conta', account: name })
+            }
+          } else {
+            skipField(bytes, st, wire)
+          }
+        }
+        return list
+      }
+
+      function parseStandardPreview(uri) {
+        const clean = uri.replace(/^otpauth:\/\/totp\//i, '')
+        const q = clean.indexOf('?')
+        const label = decodeURIComponent(q === -1 ? clean : clean.slice(0, q))
+        const query = q === -1 ? '' : clean.slice(q + 1)
+        const issuer = getRawQueryParam(query, 'issuer')
+        return [{ issuer: issuer || label || 'Conta', account: label }]
+      }
+
+      function decodeQrFromImage(img) {
+        const scales = [1600, 1000, 640]
+        for (const maxSide of scales) {
+          const ratio = Math.min(1, maxSide / Math.max(img.width, img.height))
+          const w = Math.max(1, Math.round(img.width * ratio))
+          const h = Math.max(1, Math.round(img.height * ratio))
+          canvas.width = w
+          canvas.height = h
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, w, h)
+          ctx.drawImage(img, 0, 0, w, h)
+
+          const imageData = ctx.getImageData(0, 0, w, h)
+          let code = window.jsQR(imageData.data, w, h, { inversionAttempts: 'attemptBoth' })
+          if (code && code.data) return code.data
+
+          // High-contrast threshold pass for dark screenshots / low-contrast photos
+          const d = imageData.data
+          for (let i = 0; i < d.length; i += 4) {
+            const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+            const v = lum > 128 ? 255 : 0
+            d[i] = d[i + 1] = d[i + 2] = v
+            d[i + 3] = 255
+          }
+          code = window.jsQR(d, w, h, { inversionAttempts: 'attemptBoth' })
+          if (code && code.data) return code.data
+        }
+        return null
+      }
+
+      function loadImage(file) {
+        return new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file)
+          const img = new Image()
+          img.onload = () => {
+            URL.revokeObjectURL(url)
+            resolve(img)
+          }
+          img.onerror = () => {
+            URL.revokeObjectURL(url)
+            reject(new Error('Falha ao abrir imagem: ' + file.name))
+          }
+          img.src = url
+        })
+      }
+
+      function renderResults() {
+        if (!decodedUris.length) {
+          resultsCard.style.display = 'none'
+          return
+        }
+        resultsCard.style.display = 'block'
+        countTitle.textContent = previewAccounts.length + ' chave(s) TOTP detectada(s)'
+        accountsList.innerHTML = ''
+        previewAccounts.forEach((acc) => {
+          const div = document.createElement('div')
+          div.className = 'item'
+          const left = document.createElement('div')
+          left.textContent = acc.issuer
+          const small = document.createElement('small')
+          small.textContent = acc.account || ''
+          left.appendChild(small)
+          div.appendChild(left)
+          accountsList.appendChild(div)
+        })
+        uriOutput.value = decodedUris.join('\n')
+      }
+
+      async function handleFiles(files) {
+        if (!files || !files.length) return
+        showStatus('Lendo ' + files.length + ' imagem(ns)...', '')
+        let added = 0
+        for (const file of files) {
+          try {
+            const img = await loadImage(file)
+            const text = decodeQrFromImage(img)
+            if (!text) {
+              showStatus('Nao foi possivel detectar QR Code em: ' + file.name + '. Tente recortar mais perto do QR.', 'err')
+              continue
+            }
+            if (!/^otpauth(-migration)?:\/\//i.test(text)) {
+              showStatus('QR lido nao e otpauth:// nem otpauth-migration://', 'err')
+              continue
+            }
+            if (!decodedUris.includes(text)) {
+              decodedUris.push(text)
+              if (/^otpauth-migration:\/\//i.test(text)) {
+                previewAccounts.push(...parseMigrationPreview(text))
+              } else {
+                previewAccounts.push(...parseStandardPreview(text))
+              }
+              added++
+            }
+          } catch (err) {
+            showStatus(err.message, 'err')
+          }
+        }
+        renderResults()
+        if (added > 0) {
+          showStatus(added + ' QR Code(s) decodificado(s) com sucesso!', 'ok')
+        }
+      }
+
+      fileInput.addEventListener('change', (e) => handleFiles(e.target.files))
+
+      document.addEventListener('paste', (e) => {
+        const items = e.clipboardData && e.clipboardData.items
+        if (!items) return
+        const files = []
+        for (const it of items) {
+          if (it.type && it.type.startsWith('image/')) {
+            const f = it.getAsFile()
+            if (f) files.push(f)
+          }
+        }
+        if (files.length) handleFiles(files)
+      })
+
+      copyUriBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(uriOutput.value)
+          showStatus('URI copiada! Agora cole no Zepp App -> SecureKey -> Configuracoes.', 'ok')
+        } catch (err) {
+          uriOutput.select()
+          document.execCommand('copy')
+          showStatus('Texto selecionado. Toque em Copiar e cole no Zepp App.', 'ok')
+        }
+      })
+
+      sendBridgeBtn.addEventListener('click', async () => {
+        try {
+          const resp = await fetch('/api/pending', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payload: uriOutput.value })
+          })
+          if (!resp.ok) throw new Error('HTTP ' + resp.status)
+          showStatus(
+            'Chaves enviadas ao servidor local! No Zepp App -> SecureKey -> Configuracoes, toque em "Buscar chaves do servidor local".',
+            'ok'
+          )
+        } catch (err) {
+          showStatus(
+            'Falha ao enviar. Rode ./.agents/scripts/qr-import-server.sh e abra http://IP:8787 — ' +
+              err.message,
+            'err'
+          )
+        }
+      })
+
+      clearBtn.addEventListener('click', () => {
+        decodedUris.length = 0
+        previewAccounts.length = 0
+        fileInput.value = ''
+        uriOutput.value = ''
+        renderResults()
+        statusBox.style.display = 'none'
+      })
+    })()
+  </script>
+</body>
+</html>

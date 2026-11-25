@@ -1,0 +1,17 @@
+{
+  "name": "securekey",
+  "version": "1.0.0",
+  "description": "Offline TOTP authenticator for Amazfit GTR 4 — managed from the Zepp App on iOS, no App Store companion required.",
+  "main": "app.js",
+  "scripts": {
+    "test": "node .agents/scripts/verify-totp.js",
+    "build": "zeus build -t gtr4new -t gtr4",
+    "preview": "./.agents/scripts/build-and-preview.sh preview"
+  },
+  "author": "SecureKey",
+  "license": "MIT",
+  "devDependencies": {
+    "@zeppos/device-types": "^1.0.0",
+    "jsqr": "^1.4.0"
+  }
+}
