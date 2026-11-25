@@ -12,9 +12,12 @@ const COLOR_BG = 0x000000
 const COLOR_OUTER_TRACK = 0x3a3a42
 const COLOR_INNER_TRACK = 0x2f2f36
 const COLOR_CYAN = 0x00e5ff
-const COLOR_CYAN_PILL_BG = 0x0a3a40
-const COLOR_CORAL = 0xff5a5f
-const COLOR_CORAL_PILL_BG = 0x4a1e22
+const COLOR_CYAN_PILL_BG = 0x003e48
+const COLOR_AMBER = 0xffb000
+const COLOR_AMBER_PILL_BG = 0x5a3c00
+const COLOR_CORAL = 0xff0030
+const COLOR_CORAL_DIM = 0x680030
+const COLOR_CORAL_PILL_BG = 0x580030
 const COLOR_TEXT_PRIMARY = 0xffffff
 const COLOR_TEXT_SECONDARY = 0x8e8e93
 
@@ -34,11 +37,14 @@ Page({
     indexWidget: null,
     ringWidget: null,
     tickTimer: null,
+    blinkTimer: null,
+    blinkOn: true,
     cachedKey: '',
     cachedFormatted: '--- ---',
     lastDisplayText: '',
     lastRemaining: -1,
-    lastExpiring: null,
+    lastSweep: -1,
+    lastTone: null,
     spinAccum: 0
   },
 
@@ -394,10 +400,15 @@ Page({
     const algorithm = String(item.algorithm || 'SHA1').toUpperCase()
     const timeOffsetSec = (this.state.vault && this.state.vault.timeOffsetSec) || 0
 
-    const nowSec = Math.floor(getWatchUtcMs() / 1000) + Math.trunc(Number(timeOffsetSec) || 0)
+    const periodMs = period * 1000
+    const nowMs = getWatchUtcMs() + Math.trunc(Number(timeOffsetSec) || 0) * 1000
+    const nowSec = Math.floor(nowMs / 1000)
     const counter = Math.floor(nowSec / period)
     const elapsed = ((nowSec % period) + period) % period
     const remaining = period - elapsed
+    const elapsedMs = ((nowMs % periodMs) + periodMs) % periodMs
+    const remainingMs = periodMs - elapsedMs
+    const sweep = Math.max(2, Math.round((remainingMs / periodMs) * 360))
     const cacheKey = `${item.id}:${counter}`
 
     // Compute cryptographic hash ONLY when opening or rolling over the 30s/60s window
@@ -420,45 +431,94 @@ Page({
       }
     }
 
-    if (force || remaining !== this.state.lastRemaining) {
-      this.state.lastRemaining = remaining
-      const isExpiring = remaining <= 10
-      const accentColor = isExpiring ? COLOR_CORAL : COLOR_CYAN
-      const pillBg = isExpiring ? COLOR_CORAL_PILL_BG : COLOR_CYAN_PILL_BG
-      const sweep = Math.max(6, Math.round((remaining / period) * 360))
+    let tone = 'cyan'
+    let accentColor = COLOR_CYAN
+    let pillBg = COLOR_CYAN_PILL_BG
+    if (remaining <= 10) {
+      tone = 'coral'
+      accentColor = COLOR_CORAL
+      pillBg = COLOR_CORAL_PILL_BG
+    } else if (remaining <= 15) {
+      tone = 'amber'
+      accentColor = COLOR_AMBER
+      pillBg = COLOR_AMBER_PILL_BG
+    }
 
-      if (this.state.ringWidget) {
-        this.state.ringWidget.setProperty(hmUI.prop.MORE, {
-          end_angle: -90 + sweep,
-          color: accentColor
-        })
-      }
+    const secondChanged = force || remaining !== this.state.lastRemaining
+    if (secondChanged) {
+      this.state.lastRemaining = remaining
       if (this.state.secWidget) {
         this.state.secWidget.setProperty(hmUI.prop.MORE, {
           text: `${remaining}s`,
           color: accentColor
         })
       }
-      if (force || isExpiring !== this.state.lastExpiring) {
-        this.state.lastExpiring = isExpiring
+      if (force || tone !== this.state.lastTone) {
+        this.state.lastTone = tone
         if (this.state.secPillWidget) {
-          this.state.secPillWidget.setProperty(hmUI.prop.MORE, { color: pillBg })
+          this.state.secPillWidget.setProperty(hmUI.prop.MORE, {
+            x: px(189),
+            y: px(286),
+            w: px(88),
+            h: px(36),
+            radius: px(18),
+            color: pillBg
+          })
         }
         if (this.state.issuerWidget) {
           this.state.issuerWidget.setProperty(hmUI.prop.MORE, { color: accentColor })
         }
       }
+      if (tone === 'coral') {
+        this.triggerSecondBlink(sweep)
+      } else {
+        this.stopBlinkTimer()
+      }
     }
+
+    if (this.state.ringWidget && (secondChanged || sweep !== this.state.lastSweep)) {
+      this.state.lastSweep = sweep
+      const ringColor = tone === 'coral' && this.state.blinkTimer ? COLOR_CORAL_DIM : accentColor
+      this.state.ringWidget.setProperty(hmUI.prop.MORE, {
+        end_angle: -90 + sweep,
+        color: ringColor
+      })
+    }
+  },
+
+  triggerSecondBlink(sweep) {
+    this.stopBlinkTimer()
+    this.state.ringWidget.setProperty(hmUI.prop.MORE, {
+      end_angle: -90 + sweep,
+      color: COLOR_CORAL_DIM
+    })
+    this.state.blinkTimer = setTimeout(() => {
+      this.state.blinkTimer = null
+      if (this.state.ringWidget && this.state.lastTone === 'coral') {
+        this.state.ringWidget.setProperty(hmUI.prop.MORE, {
+          color: COLOR_CORAL
+        })
+      }
+    }, 150)
+  },
+
+  stopBlinkTimer() {
+    if (this.state.blinkTimer) {
+      clearTimeout(this.state.blinkTimer)
+      this.state.blinkTimer = null
+    }
+    this.state.blinkOn = true
   },
 
   startTickTimer() {
     this.stopTickTimer()
     this.state.tickTimer = setInterval(() => {
       this.refreshDetail(false)
-    }, 1000)
+    }, 50)
   },
 
   stopTickTimer() {
+    this.stopBlinkTimer()
     if (this.state.tickTimer) {
       clearInterval(this.state.tickTimer)
       this.state.tickTimer = null
