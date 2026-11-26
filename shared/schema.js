@@ -123,6 +123,46 @@ export function normalizePinLock(raw) {
   }
 }
 
+export function getAccountDedupeKey(raw) {
+  const normalized = normalizeAccount(raw)
+  if (!normalized.secret) {
+    return ''
+  }
+  return `${normalized.secret}|${normalized.algorithm}|${normalized.digits}|${normalized.period}`
+}
+
+export function mergeUniqueAccounts(existingAccounts = [], incomingAccounts = []) {
+  const existing = Array.isArray(existingAccounts) ? existingAccounts : []
+  const incoming = Array.isArray(incomingAccounts) ? incomingAccounts : []
+  const seen = {}
+  const merged = []
+
+  for (let i = 0; i < existing.length; i += 1) {
+    const item = normalizeAccount(existing[i])
+    if (!item.secret) continue
+    const key = getAccountDedupeKey(item)
+    seen[key] = item
+    merged.push(item)
+  }
+
+  const added = []
+  const skipped = []
+  for (let i = 0; i < incoming.length; i += 1) {
+    const item = normalizeAccount(incoming[i])
+    if (!item.secret) continue
+    const key = getAccountDedupeKey(item)
+    if (Object.prototype.hasOwnProperty.call(seen, key)) {
+      skipped.push(seen[key])
+    } else {
+      seen[key] = item
+      merged.push(item)
+      added.push(item)
+    }
+  }
+
+  return { accounts: merged, added, skipped }
+}
+
 export function createEmptyVault(revision = 0) {
   return {
     version: SCHEMA_VERSION,

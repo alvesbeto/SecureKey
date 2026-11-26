@@ -11,7 +11,7 @@ import {
   formatOtpCode,
   getInitials
 } from '../../shared/totp.js'
-import { normalizeVault, hashPin } from '../../shared/schema.js'
+import { normalizeVault, hashPin, getAccountDedupeKey, mergeUniqueAccounts } from '../../shared/schema.js'
 import { isPinRequired } from '../../utils/storage.js'
 import {
   parseOtpAuthUri,
@@ -184,5 +184,53 @@ assert.equal(isPinRequired(alwaysVault, { lastActiveAt: 100000, pinHash }, true,
 
 const disabledVault = normalizeVault({ revision: 3, pinLock: { enabled: false }, accounts: [] })
 assert.equal(isPinRequired(disabledVault, { lastActiveAt: 0, pinHash: '' }, false, 999999), false)
+
+// Verify account deduplication across QR/URI/manual imports and in-batch duplicates.
+const dedupeExisting = [
+  {
+    id: 'sk_1',
+    issuer: 'GitHub',
+    account: 'beto@example.com',
+    secret: 'jbswy3dpehp k3pxp====',
+    digits: 6,
+    period: 30,
+    algorithm: 'SHA1'
+  }
+]
+const dedupeIncoming = [
+  {
+    id: 'sk_2',
+    issuer: 'GitHub Renomeado',
+    account: 'beto@example.com',
+    secret: 'JBSWY3DPEHPK3PXP',
+    digits: 6,
+    period: 30,
+    algorithm: 'SHA1'
+  },
+  {
+    id: 'sk_3',
+    issuer: 'Notion',
+    account: 'alice@acme.io',
+    secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+    digits: 6,
+    period: 30,
+    algorithm: 'SHA1'
+  },
+  {
+    id: 'sk_4',
+    issuer: 'Notion Duplicate',
+    account: 'alice@acme.io',
+    secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+    digits: 6,
+    period: 30,
+    algorithm: 'SHA1'
+  }
+]
+assert.equal(getAccountDedupeKey(dedupeExisting[0]), getAccountDedupeKey(dedupeIncoming[0]))
+const mergeResult = mergeUniqueAccounts(dedupeExisting, dedupeIncoming)
+assert.equal(mergeResult.accounts.length, 2)
+assert.equal(mergeResult.added.length, 1)
+assert.equal(mergeResult.added[0].issuer, 'Notion')
+assert.equal(mergeResult.skipped.length, 2)
 
 console.log('ALL TOTP, PARSER & PIN LOCK TESTS PASSED')

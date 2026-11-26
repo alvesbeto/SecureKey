@@ -3,7 +3,9 @@ import {
   VAULT_STORAGE_KEY,
   PIN_TIMEOUT_OPTIONS,
   createEmptyVault,
+  getAccountDedupeKey,
   hashPin,
+  mergeUniqueAccounts,
   normalizeAccount,
   normalizePinLock,
   normalizeVault
@@ -146,6 +148,35 @@ function pillButton(label, bg, onClick) {
   })
 }
 
+function buttonRow(buttons) {
+  return View(
+    {
+      style: {
+        display: 'flex',
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginBottom: '8px'
+      }
+    },
+    buttons
+  )
+}
+
+function cardView(children) {
+  return View(
+    {
+      style: {
+        marginTop: '10px',
+        padding: '10px',
+        border: '1px solid #eaeaea',
+        borderRadius: '6px',
+        backgroundColor: 'white'
+      }
+    },
+    children
+  )
+}
+
 AppSettingsPage({
   state: {
     props: {}
@@ -259,9 +290,19 @@ AppSettingsPage({
       return
     }
     const vault = readVault(storage)
+    const merged = mergeUniqueAccounts(vault.accounts, [account])
+    if (!merged.added.length) {
+      const existing = merged.skipped[0]
+      setStr(storage, URI_DRAFT_KEY, '')
+      setBanner(
+        storage,
+        `Chave ja cadastrada ("${(existing && existing.issuer) || account.issuer}").`
+      )
+      return
+    }
     writeVault(storage, {
       ...vault,
-      accounts: vault.accounts.concat([account])
+      accounts: merged.accounts
     })
     setStr(storage, URI_DRAFT_KEY, '')
     setBanner(storage, `Chave "${account.issuer}" adicionada.`)
@@ -286,14 +327,41 @@ AppSettingsPage({
       secret
     })
     const vault = readVault(storage)
+    const merged = mergeUniqueAccounts(vault.accounts, [entry])
+    if (!merged.added.length) {
+      const existing = merged.skipped[0]
+      setBanner(
+        storage,
+        `Chave ja cadastrada ("${(existing && existing.issuer) || entry.issuer}").`
+      )
+      return
+    }
     writeVault(storage, {
       ...vault,
-      accounts: vault.accounts.concat([entry])
+      accounts: merged.accounts
     })
     setStr(storage, ISSUER_KEY, '')
     setStr(storage, ACCOUNT_KEY, '')
     setStr(storage, SECRET_KEY, '')
     setBanner(storage, `Chave "${entry.issuer}" adicionada.`)
+  },
+
+  dedupeExistingAccounts() {
+    const storage = this.state.props.settingsStorage
+    const vault = readVault(storage)
+    const merged = mergeUniqueAccounts([], vault.accounts)
+    if (!merged.skipped.length) {
+      setBanner(storage, 'Nenhuma chave duplicada encontrada.')
+      return
+    }
+    writeVault(storage, {
+      ...vault,
+      accounts: merged.accounts
+    })
+    setBanner(
+      storage,
+      `${merged.skipped.length} chave(s) duplicada(s) removida(s). Sync no relogio.`
+    )
   },
 
   deleteAccount(id) {
@@ -312,7 +380,7 @@ AppSettingsPage({
     const vault = readVault(storage)
     const banner = getStr(storage, STATUS_BANNER_KEY, '')
     const appTitle = gettext('appName') || 'SecureKey'
-    const qrUrl = getStr(storage, QR_URL_KEY, 'http://192.168.18.168:8787')
+    const qrUrl = getStr(storage, QR_URL_KEY, '').trim() || 'http://192.168.18.168:8787'
     const pinDraft = getStr(storage, PIN_DRAFT_KEY, '')
     const pinEnabled = Boolean(vault.pinLock && vault.pinLock.enabled)
     const pinTimeout =
@@ -323,9 +391,19 @@ AppSettingsPage({
       ? `PIN ATIVO (${vault.pinLock.pinLength} dig) / ${findTimeoutLabel(pinTimeout)}`
       : `PIN DESATIVADO / timeout ${findTimeoutLabel(pinTimeout)}`
 
+    const seenKeys = {}
+    let duplicateCount = 0
     const accountRows = []
     for (let i = 0; i < vault.accounts.length; i += 1) {
       const item = vault.accounts[i]
+      const dedupeKey = getAccountDedupeKey(item)
+      if (dedupeKey) {
+        if (Object.prototype.hasOwnProperty.call(seenKeys, dedupeKey)) {
+          duplicateCount += 1
+        } else {
+          seenKeys[dedupeKey] = true
+        }
+      }
       const idx = i
       accountRows.push(
         View(
@@ -345,20 +423,11 @@ AppSettingsPage({
               maxLength: 200,
               onChange: () => {}
             }),
-            View(
-              {
-                style: {
-                  display: 'flex',
-                  flexDirection: 'row',
-                  flexWrap: 'wrap'
-                }
-              },
-              [
-                pillButton('Subir', '#6B7280', () => this.moveAccount(idx, -1)),
-                pillButton('Descer', '#6B7280', () => this.moveAccount(idx, 1)),
-                pillButton('Excluir', '#D85E33', () => this.deleteAccount(item.id))
-              ]
-            )
+            buttonRow([
+              pillButton('Subir', '#6B7280', () => this.moveAccount(idx, -1)),
+              pillButton('Descer', '#6B7280', () => this.moveAccount(idx, 1)),
+              pillButton('Excluir', '#D85E33', () => this.deleteAccount(item.id))
+            ])
           ]
         )
       )
@@ -378,6 +447,17 @@ AppSettingsPage({
       )
     }
 
+    const savedHeaderButtons =
+      duplicateCount > 0
+        ? buttonRow([
+            pillButton(
+              `Remover ${duplicateCount} duplicada(s)`,
+              '#D97706',
+              () => this.dedupeExistingAccounts()
+            )
+          ])
+        : null
+
     return View(
       {
         style: {
@@ -385,146 +465,146 @@ AppSettingsPage({
         }
       },
       [
-        TextInput({
-          label: `${appTitle} 1.2.2 / appId 20421`,
-          bold: true,
-          value: banner
-            ? banner
-            : `${vault.accounts.length} chave(s). Use Buscar chaves do servidor local apos Enviar no Safari.`,
-          subStyle: { color: '#666', fontSize: '13px' },
-          maxLength: 200,
-          onChange: () => {}
-        }),
+        cardView([
+          TextInput({
+            label: `${appTitle} 1.2.3 / appId 20421`,
+            bold: true,
+            value: banner
+              ? banner
+              : `${vault.accounts.length} chave(s). Use Buscar chaves do servidor local apos Enviar no Safari.`,
+            subStyle: { color: '#666', fontSize: '13px' },
+            maxLength: 200,
+            onChange: () => {}
+          }),
+          buttonRow([
+            pillButton('Sincronizar Relogio', '#111827', () => {
+              storage.setItem(SYNC_NONCE_KEY, String(Date.now()))
+              setBanner(storage, 'Sync enviado. Abra o SecureKey no relogio.')
+            })
+          ])
+        ]),
 
-        pillButton('Sincronizar Relogio', '#111827', () => {
-          storage.setItem(SYNC_NONCE_KEY, String(Date.now()))
-          setBanner(storage, 'Sync enviado. Abra o SecureKey no relogio.')
-        }),
-
-        TextInput({
-          label: 'Servidor QR (qr-importer)',
-          bold: true,
-          value: qrUrl,
-          subStyle: { color: '#333', fontSize: '14px' },
-          maxLength: 200,
-          onChange: (val) => {
-            setStr(storage, QR_URL_KEY, val)
-          }
-        }),
-        pillButton('Buscar chaves do servidor local', '#4F46E5', () => {
-          storage.setItem(
-            QR_FETCH_REQ_KEY,
-            JSON.stringify({ url: qrUrl, nonce: Date.now() })
-          )
-          setBanner(storage, 'Buscando chaves enviadas ao servidor local...')
-        }),
-
-        TextInput({
-          label: 'Colar otpauth:// ou otpauth-migration://',
-          bold: true,
-          value: getStr(storage, URI_DRAFT_KEY, ''),
-          subStyle: { color: '#333', fontSize: '13px' },
-          onChange: (val) => {
-            setStr(storage, URI_DRAFT_KEY, val)
-          }
-        }),
-        pillButton('Importar URI / Migration', '#059669', () => {
-          const text = getStr(storage, URI_DRAFT_KEY, '').trim()
-          if (!text) {
-            setBanner(storage, 'Cole a URI (ou use Buscar chaves do servidor local).')
-            return
-          }
-          this.addFromUri(text)
-          setStr(storage, URI_DRAFT_KEY, '')
-        }),
-
-        TextInput({
-          label: '=== PIN DO SMARTWATCH ===',
-          bold: true,
-          value: pinStatus,
-          subStyle: { color: '#111', fontSize: '14px' },
-          maxLength: 200,
-          onChange: () => {}
-        }),
-        TextInput({
-          label: 'Novo PIN (4 a 6 digitos)',
-          bold: true,
-          value: pinDraft,
-          subStyle: { color: '#333', fontSize: '14px' },
-          maxLength: 6,
-          onChange: (val) => {
-            setStr(storage, PIN_DRAFT_KEY, val)
-          }
-        }),
-        View(
-          {
-            style: {
-              display: 'flex',
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              marginBottom: '10px'
+        cardView([
+          TextInput({
+            label: 'Servidor Local QR (qr-importer)',
+            bold: true,
+            value: qrUrl,
+            subStyle: { color: '#333', fontSize: '14px' },
+            maxLength: 200,
+            onChange: (val) => {
+              setStr(storage, QR_URL_KEY, val)
             }
-          },
-          pinActionButtons
-        ),
+          }),
+          buttonRow([
+            pillButton('Buscar chaves do servidor local', '#4F46E5', () => {
+              storage.setItem(
+                QR_FETCH_REQ_KEY,
+                JSON.stringify({ url: qrUrl, nonce: Date.now() })
+              )
+              setBanner(storage, 'Buscando chaves enviadas ao servidor local...')
+            })
+          ])
+        ]),
 
-        TextInput({
-          label: 'Issuer',
-          bold: true,
-          value: getStr(storage, ISSUER_KEY, ''),
-          subStyle: { color: '#333', fontSize: '14px' },
-          maxLength: 40,
-          onChange: (val) => {
-            setStr(storage, ISSUER_KEY, val)
-          }
-        }),
-        TextInput({
-          label: 'Conta',
-          bold: true,
-          value: getStr(storage, ACCOUNT_KEY, ''),
-          subStyle: { color: '#333', fontSize: '14px' },
-          maxLength: 64,
-          onChange: (val) => {
-            setStr(storage, ACCOUNT_KEY, val)
-          }
-        }),
-        TextInput({
-          label: 'Segredo Base32',
-          bold: true,
-          value: getStr(storage, SECRET_KEY, ''),
-          subStyle: { color: '#333', fontSize: '14px' },
-          maxLength: 256,
-          onChange: (val) => {
-            setStr(storage, SECRET_KEY, val)
-          }
-        }),
-        pillButton('Adicionar chave', '#059669', () => this.addManual()),
-
-        TextInput({
-          label: 'Chaves salvas (Subir / Descer / Excluir)',
-          bold: true,
-          value:
-            accountRows.length > 0
-              ? `${accountRows.length} conta(s)`
-              : 'Nenhuma chave ainda',
-          subStyle: { color: '#666', fontSize: '13px' },
-          maxLength: 200,
-          onChange: () => {}
-        }),
-
-        accountRows.length > 0 &&
-          View(
-            {
-              style: {
-                marginTop: '8px',
-                padding: '10px',
-                border: '1px solid #eaeaea',
-                borderRadius: '6px',
-                backgroundColor: 'white'
+        cardView([
+          TextInput({
+            label: 'Colar otpauth:// ou otpauth-migration://',
+            bold: true,
+            value: getStr(storage, URI_DRAFT_KEY, ''),
+            subStyle: { color: '#333', fontSize: '13px' },
+            onChange: (val) => {
+              setStr(storage, URI_DRAFT_KEY, val)
+            }
+          }),
+          buttonRow([
+            pillButton('Importar URI / Migration', '#059669', () => {
+              const text = getStr(storage, URI_DRAFT_KEY, '').trim()
+              if (!text) {
+                setBanner(storage, 'Cole a URI (ou use Buscar chaves do servidor local).')
+                return
               }
-            },
-            accountRows
-          )
+              this.addFromUri(text)
+              setStr(storage, URI_DRAFT_KEY, '')
+            })
+          ])
+        ]),
+
+        cardView([
+          TextInput({
+            label: '=== PIN DO SMARTWATCH ===',
+            bold: true,
+            value: pinStatus,
+            subStyle: { color: '#111', fontSize: '14px' },
+            maxLength: 200,
+            onChange: () => {}
+          }),
+          TextInput({
+            label: 'Novo PIN (4 a 6 digitos)',
+            bold: true,
+            value: pinDraft,
+            subStyle: { color: '#333', fontSize: '14px' },
+            maxLength: 6,
+            onChange: (val) => {
+              setStr(storage, PIN_DRAFT_KEY, val)
+            }
+          }),
+          buttonRow(pinActionButtons)
+        ]),
+
+        cardView([
+          TextInput({
+            label: 'Issuer',
+            bold: true,
+            value: getStr(storage, ISSUER_KEY, ''),
+            subStyle: { color: '#333', fontSize: '14px' },
+            maxLength: 40,
+            onChange: (val) => {
+              setStr(storage, ISSUER_KEY, val)
+            }
+          }),
+          TextInput({
+            label: 'Conta',
+            bold: true,
+            value: getStr(storage, ACCOUNT_KEY, ''),
+            subStyle: { color: '#333', fontSize: '14px' },
+            maxLength: 64,
+            onChange: (val) => {
+              setStr(storage, ACCOUNT_KEY, val)
+            }
+          }),
+          TextInput({
+            label: 'Segredo Base32',
+            bold: true,
+            value: getStr(storage, SECRET_KEY, ''),
+            subStyle: { color: '#333', fontSize: '14px' },
+            maxLength: 256,
+            onChange: (val) => {
+              setStr(storage, SECRET_KEY, val)
+            }
+          }),
+          buttonRow([
+            pillButton('Adicionar chave', '#059669', () => this.addManual())
+          ])
+        ]),
+
+        cardView(
+          [
+            TextInput({
+              label: 'Chaves salvas (Subir / Descer / Excluir)',
+              bold: true,
+              value:
+                accountRows.length > 0
+                  ? `${accountRows.length} conta(s)`
+                  : 'Nenhuma chave ainda',
+              subStyle: { color: '#666', fontSize: '13px' },
+              maxLength: 200,
+              onChange: () => {}
+            }),
+            savedHeaderButtons
+          ]
+            .concat(accountRows)
+            .filter(Boolean)
+        )
       ]
     )
   }

@@ -5,6 +5,7 @@ import {
   BLE_SINGLE_LIMIT_BYTES,
   BLE_CHUNK_SIZE_CHARS,
   createEmptyVault,
+  mergeUniqueAccounts,
   normalizeVault,
   getUtf8ByteLength
 } from './../shared/schema'
@@ -94,6 +95,45 @@ function setUiBanner(banner) {
   }
 }
 
+function importPayloadIntoVault(payload, fromQrBridge = false) {
+  const parsed = parseImportInput(payload)
+  if (!parsed.accounts.length) {
+    setUiBanner(
+      fromQrBridge
+        ? 'Nenhuma chave TOTP encontrada no QR.'
+        : 'Nenhuma chave TOTP encontrada no texto.'
+    )
+    return
+  }
+
+  const vault = readStoredVault()
+  const merged = mergeUniqueAccounts(vault.accounts, parsed.accounts)
+  const warn =
+    parsed.warnings && parsed.warnings.length
+      ? ` (${parsed.warnings.length} aviso(s))`
+      : ''
+
+  if (!merged.added.length) {
+    setUiBanner(
+      `Nenhuma chave nova: ${merged.skipped.length} chave(s) ja cadastrada(s)${warn}.`
+    )
+    return
+  }
+
+  const nextVault = normalizeVault({
+    ...vault,
+    revision: Date.now(),
+    accounts: merged.accounts
+  })
+  settings.settingsStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(nextVault))
+
+  const dupInfo = merged.skipped.length
+    ? `, ${merged.skipped.length} duplicada(s) ignorada(s)`
+    : ''
+  const originSuffix = fromQrBridge ? ' do QR e sincronizadas!' : ''
+  setUiBanner(`${merged.added.length} chave(s) importada(s)${originSuffix}${dupInfo}${warn}.`)
+}
+
 function handleImportPayload(rawReq) {
   try {
     const req = typeof rawReq === 'string' ? JSON.parse(rawReq) : rawReq
@@ -102,22 +142,7 @@ function handleImportPayload(rawReq) {
       setUiBanner('Payload de importacao vazio.')
       return
     }
-    const parsed = parseImportInput(payload)
-    if (!parsed.accounts.length) {
-      setUiBanner('Nenhuma chave TOTP encontrada no texto.')
-      return
-    }
-    const vault = readStoredVault()
-    const nextVault = normalizeVault({
-      ...vault,
-      revision: Date.now(),
-      accounts: [...vault.accounts, ...parsed.accounts]
-    })
-    settings.settingsStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(nextVault))
-    const warn = parsed.warnings && parsed.warnings.length
-      ? ` (${parsed.warnings.length} aviso(s))`
-      : ''
-    setUiBanner(`${parsed.accounts.length} chave(s) importada(s)${warn}.`)
+    importPayloadIntoVault(payload, false)
   } catch (err) {
     setUiBanner(
       `Erro ao importar: ${err && err.message ? err.message : 'falha no parse'}`
@@ -143,19 +168,7 @@ async function handleQrBridgeFetch(rawReq) {
       setUiBanner('Nenhum QR pendente no servidor. Envie a imagem primeiro no navegador.')
       return
     }
-    const parsed = parseImportInput(payload)
-    if (!parsed.accounts.length) {
-      setUiBanner('Nenhuma chave TOTP encontrada no QR.')
-      return
-    }
-    const vault = readStoredVault()
-    const nextVault = normalizeVault({
-      ...vault,
-      revision: Date.now(),
-      accounts: [...vault.accounts, ...parsed.accounts]
-    })
-    settings.settingsStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(nextVault))
-    setUiBanner(`${parsed.accounts.length} chave(s) importada(s) do QR e sincronizadas!`)
+    importPayloadIntoVault(payload, true)
   } catch (err) {
     setUiBanner('Falha ao conectar no servidor local. Use "Copiar URI(s)" no Safari e cole abaixo.')
   }
